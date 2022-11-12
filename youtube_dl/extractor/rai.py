@@ -73,10 +73,17 @@ class RaiBaseIE(InfoExtractor):
                 continue
 
             ext = determine_ext(media_url)
+
             if (ext == 'm3u8' and platform != 'mon') or (ext == 'f4m' and platform != 'flash'):
                 continue
 
-            if ext == 'm3u8' or 'format=m3u8' in media_url or platform == 'mon':
+            if (ext == "mp3"):
+                formats.append({
+                        'url': media_url,
+                        'tbr' : None,
+                        'format-id': 'http'
+                })
+            elif ext == 'm3u8' or 'format=m3u8' in media_url or platform == 'mon':
                 formats.extend(self._extract_m3u8_formats(
                     media_url, video_id, 'mp4', 'm3u8_native',
                     m3u8_id='hls', fatal=False))
@@ -601,3 +608,72 @@ class RaiIE(RaiBaseIE):
         info.update(relinker_info)
 
         return info
+
+
+class RaiPlaySoundIE(RaiBaseIE):
+    _VALID_URL = r'(?P<base>https?://(?:www\.)?raiplaysound\.it/.+?-(?P<id>%s))\.(?:html|json)' % RaiBaseIE._UUID_RE
+    _TESTS = [{
+        'url': 'https://www.raiplaysound.it/audio/2022/11/Il-Ruggito-del-Coniglio-del-11112022-1d1ba383-3dde-4ccb-a09e-08b3448e9846.html',
+        'only_matching': True,
+    }]
+
+    def _real_extract(self, url):
+        base, audio_id = re.match(self._VALID_URL, url).groups()
+
+        media = self._download_json(
+            base + '.json', audio_id, 'Downloading video JSON')
+
+        if try_get(
+                media,
+                (lambda x: x['rights_management']['rights']['drm'],
+                 lambda x: x['program_info']['rights_management']['rights']['drm']),
+                dict):
+            raise ExtractorError('This video is DRM protected.', expected=True)
+
+        title = media['title']
+
+        audio = media['audio']
+        
+        relinker_info = self._extract_relinker_info(audio['url'], audio_id)
+        self._sort_formats(relinker_info['formats'])
+
+        thumbnails = []
+        for _, value in media.get('images', {}).items():
+            if value:
+                thumbnails.append({
+                    'url': urljoin(url, value),
+                })
+
+        date_published = media.get('create_date')
+        time_published = media.get('create_time')
+        if date_published and time_published:
+            date_published += ' ' + time_published
+
+        subtitles = self._extract_subtitles(url, audio)
+
+        program_info = media.get('track_info') or {}
+        season = program_info.get('season')
+
+        info = {
+            'id': remove_start(program_info.get('id'), 'ContentItem-') or audio_id,
+            'display_id': audio_id,
+            'title': self._live_title(title) if relinker_info.get(
+                'is_live') else title,
+            'alt_title': strip_or_none(media.get('subtitle')),
+            'description': media.get('description'),
+            'uploader': strip_or_none(program_info.get('channel')),
+            'creator': strip_or_none(program_info.get('editor') or None),
+            'duration': parse_duration(audio.get('duration')),
+            'timestamp': unified_timestamp(date_published),
+            'thumbnails': thumbnails,
+            'series': program_info.get('program_title'),
+            'season_number': int_or_none(season),
+            'season': season if (season and not season.isdigit()) else None,
+            'episode': program_info.get('episode_title'),
+            'episode_number': int_or_none(program_info.get('episode_number')),
+            'subtitles': subtitles,
+        }
+
+        info.update(relinker_info)
+        return info
+

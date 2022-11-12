@@ -1000,6 +1000,7 @@ from .rai import (
     RaiPlayIE,
     RaiPlayLiveIE,
     RaiPlayPlaylistIE,
+    RaiPlaySoundIE,
     RaiIE,
 )
 from .raywenderlich import (
